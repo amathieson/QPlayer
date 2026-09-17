@@ -49,25 +49,24 @@ jobs:
           $process.Id | Set-Content "$env:GITHUB_WORKSPACE\ffmpeg.pid"
 
       - name: Run tests
-        run: dotnet test Qplayer.Tests/Qplayer.Tests.csproj --configuration Release --no-build
+        run: dotnet test Qplayer.Tests/Qplayer.Tests.csproj --configuration Release
 
       - name: Stop screen recording
         if: always()
         shell: powershell
         run: |
           if (Test-Path "$env:GITHUB_WORKSPACE\ffmpeg.pid") {
-            $pid = Get-Content "$env:GITHUB_WORKSPACE\ffmpeg.pid"
+            $ffmpegPid = Get-Content "$env:GITHUB_WORKSPACE\ffmpeg.pid"
 
-            # Send CTRL+C to FFmpeg so it can finalise the MP4.
-            $process = Get-Process -Id $pid -ErrorAction SilentlyContinue
+            $process = Get-Process -Id $ffmpegPid -ErrorAction SilentlyContinue
 
             if ($process) {
               $process.CloseMainWindow()
               $process.WaitForExit(10000)
             }
 
-            if (Get-Process -Id $pid -ErrorAction SilentlyContinue) {
-              Stop-Process -Id $pid -Force
+            if (Get-Process -Id $ffmpegPid -ErrorAction SilentlyContinue) {
+              Stop-Process -Id $ffmpegPid -Force
             }
           }
 
