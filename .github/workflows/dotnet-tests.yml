@@ -1,0 +1,64 @@
+name: .NET Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install FFmpeg
+        shell: powershell
+        run: choco install ffmpeg -y
+
+      - name: Restore
+        run: dotnet restore Qplayer.sln
+
+      - name: Build
+        run: dotnet build Qplayer.sln --configuration Release --no-restore
+
+      - name: Start screen recording
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE\artifacts" | Out-Null
+
+          Start-Process ffmpeg `
+            -ArgumentList @(
+              "-y",
+              "-f", "gdigrab",
+              "-framerate", "10",
+              "-i", "desktop",
+              "-c:v", "libx264",
+              "-preset", "ultrafast",
+              "-pix_fmt", "yuv420p",
+              "$env:GITHUB_WORKSPACE\artifacts\test-feed.mp4"
+            ) `
+            -WindowStyle Hidden
+
+      - name: Run tests
+        run: dotnet test Qplayer.Tests/Qplayer.Tests.csproj --configuration Release --no-build
+
+      - name: Stop screen recording
+        if: always()
+        shell: powershell
+        run: |
+          taskkill /IM ffmpeg.exe /F
+          Start-Sleep -Seconds 2
+
+      - name: Upload test recording
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qplayer-test-feed
+          path: artifacts/test-feed.mp4
+          if-no-files-found: warn
