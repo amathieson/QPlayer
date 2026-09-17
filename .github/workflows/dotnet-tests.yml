@@ -15,7 +15,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '8.0.x'
 
       - name: Install FFmpeg
         shell: powershell
@@ -32,7 +32,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE\artifacts" | Out-Null
 
-          Start-Process ffmpeg `
+          $process = Start-Process ffmpeg `
             -ArgumentList @(
               "-y",
               "-f", "gdigrab",
@@ -43,7 +43,10 @@ jobs:
               "-pix_fmt", "yuv420p",
               "$env:GITHUB_WORKSPACE\artifacts\test-feed.mp4"
             ) `
+            -PassThru `
             -WindowStyle Hidden
+
+          $process.Id | Set-Content "$env:GITHUB_WORKSPACE\ffmpeg.pid"
 
       - name: Run tests
         run: dotnet test Qplayer.Tests/Qplayer.Tests.csproj --configuration Release --no-build
@@ -52,8 +55,21 @@ jobs:
         if: always()
         shell: powershell
         run: |
-          taskkill /IM ffmpeg.exe /F
-          Start-Sleep -Seconds 2
+          if (Test-Path "$env:GITHUB_WORKSPACE\ffmpeg.pid") {
+            $pid = Get-Content "$env:GITHUB_WORKSPACE\ffmpeg.pid"
+
+            # Send CTRL+C to FFmpeg so it can finalise the MP4.
+            $process = Get-Process -Id $pid -ErrorAction SilentlyContinue
+
+            if ($process) {
+              $process.CloseMainWindow()
+              $process.WaitForExit(10000)
+            }
+
+            if (Get-Process -Id $pid -ErrorAction SilentlyContinue) {
+              Stop-Process -Id $pid -Force
+            }
+          }
 
       - name: Upload test recording
         if: always()
