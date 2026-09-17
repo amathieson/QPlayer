@@ -15,7 +15,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
 
       - name: Install FFmpeg
         shell: powershell
@@ -32,21 +32,36 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE\artifacts" | Out-Null
 
+          $ffmpegLog = "$env:GITHUB_WORKSPACE\artifacts\ffmpeg.log"
+          $ffmpegOutput = "$env:GITHUB_WORKSPACE\artifacts\test-feed.mp4"
+
           $process = Start-Process ffmpeg `
             -ArgumentList @(
               "-y",
               "-f", "gdigrab",
               "-framerate", "10",
+              "-draw_mouse", "1",
               "-i", "desktop",
               "-c:v", "libx264",
               "-preset", "ultrafast",
               "-pix_fmt", "yuv420p",
-              "$env:GITHUB_WORKSPACE\artifacts\test-feed.mp4"
+              $ffmpegOutput
             ) `
+            -RedirectStandardError $ffmpegLog `
             -PassThru `
             -WindowStyle Hidden
 
           $process.Id | Set-Content "$env:GITHUB_WORKSPACE\ffmpeg.pid"
+
+          Start-Sleep -Seconds 3
+
+          if ($process.HasExited) {
+            Write-Host "FFmpeg exited early with code $($process.ExitCode)"
+            Get-Content $ffmpegLog
+            exit 1
+          }
+
+          Write-Host "FFmpeg recording started (PID $($process.Id))"
 
       - name: Run tests
         run: dotnet test Qplayer.Tests/Qplayer.Tests.csproj --configuration Release
@@ -61,13 +76,22 @@ jobs:
             $process = Get-Process -Id $ffmpegPid -ErrorAction SilentlyContinue
 
             if ($process) {
+              Write-Host "Stopping FFmpeg..."
+
+              # Ask FFmpeg to terminate gracefully.
               $process.CloseMainWindow()
               $process.WaitForExit(10000)
             }
 
             if (Get-Process -Id $ffmpegPid -ErrorAction SilentlyContinue) {
+              Write-Host "FFmpeg did not exit gracefully, killing it."
               Stop-Process -Id $ffmpegPid -Force
             }
+          }
+
+          if (Test-Path "$env:GITHUB_WORKSPACE\artifacts\ffmpeg.log") {
+            Write-Host "===== FFmpeg log ====="
+            Get-Content "$env:GITHUB_WORKSPACE\artifacts\ffmpeg.log"
           }
 
       - name: Upload test recording
@@ -75,5 +99,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: qplayer-test-feed
-          path: artifacts/test-feed.mp4
+          path: | 
+            artifacts/test-feed.mp4
+            artifacts/ffmpeg.log
           if-no-files-found: warn
