@@ -119,14 +119,17 @@ jobs:
 
           $testLog = "$artifacts\test-output.log"
 
+          # 1. Target the solution to match the build step
+          # 2. Add --no-build since we already built it
+          # 3. Remove the semicolon logger argument
           $testArgs = @(
               "test",
-              "Qplayer.Tests/Qplayer.Tests.csproj",
+              "Qplayer.sln",
               "--no-build",
               "--configuration",
               "Debug",
-              "--logger",
-              "console;verbosity=normal"
+              "--",                  # Passes arguments directly to the new Testing Platform
+              "--diagnostic"         # Forces the runner to log WHY zero tests were discovered
           )
 
           Write-Host "========================================"
@@ -135,7 +138,9 @@ jobs:
           Write-Host "dotnet $($testArgs -join ' ')"
           Write-Host ""
 
-          & dotnet @testArgs *> $testLog
+          # Run without the *> redirection temporarily so the raw error 
+          # isn't swallowed by PowerShell's stream handling
+          & dotnet @testArgs
 
           $testExitCode = $LASTEXITCODE
 
