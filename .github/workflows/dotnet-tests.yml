@@ -47,12 +47,15 @@ jobs:
           $recording = "$env:GITHUB_WORKSPACE\artifacts\test-feed.mkv"
           $testLabel = "$env:GITHUB_WORKSPACE\artifacts\current-test.txt"
           $testLog = "$env:GITHUB_WORKSPACE\artifacts\test-output.log"
-          $ffmpeg.StartInfo.WorkingDirectory = "$env:GITHUB_WORKSPACE\artifacts"
-          $filter = "drawtext=textfile='current-test.txt':reload=1:fontcolor=white:fontsize=28:box=1:boxcolor=black@0.65:boxborderw=12:x=20:y=h-th-20"
 
           $ffmpeg = New-Object System.Diagnostics.Process
           $ffmpeg.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+
           $ffmpeg.StartInfo.FileName = "ffmpeg"
+          $ffmpeg.StartInfo.WorkingDirectory = "$env:GITHUB_WORKSPACE\artifacts"
+
+          $filter = "drawtext=textfile='current-test.txt':reload=1:fontcolor=white:fontsize=28:box=1:boxcolor=black@0.65:boxborderw=12:x=20:y=h-th-20"
+
           $ffmpeg.StartInfo.Arguments = @(
             "-y",
             "-f", "gdigrab",
@@ -73,7 +76,6 @@ jobs:
           $ffmpeg.Start()
 
           Write-Host "FFmpeg recording started (PID $($ffmpeg.Id))"
-
           try {
             dotnet test Qplayer.Tests/Qplayer.Tests.csproj `
               --configuration Debug `
