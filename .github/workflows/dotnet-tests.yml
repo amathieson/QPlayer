@@ -47,6 +47,8 @@ jobs:
           $recording = "$env:GITHUB_WORKSPACE\artifacts\test-feed.mkv"
           $testLabel = "$env:GITHUB_WORKSPACE\artifacts\current-test.txt"
           $testLog = "$env:GITHUB_WORKSPACE\artifacts\test-output.log"
+          $ffmpeg.StartInfo.WorkingDirectory = "$env:GITHUB_WORKSPACE\artifacts"
+          $filter = "drawtext=textfile='current-test.txt':reload=1:fontcolor=white:fontsize=28:box=1:boxcolor=black@0.65:boxborderw=12:x=20:y=h-th-20"
 
           $ffmpeg = New-Object System.Diagnostics.Process
           $ffmpeg.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
@@ -57,7 +59,7 @@ jobs:
             "-framerate", "10",
             "-video_size", "1920x1080",
             "-i", "desktop",
-            "-vf", "drawtext=textfile='$testLabel':reload=1:fontcolor=white:fontsize=28:box=1:boxcolor=black@0.65:boxborderw=12:x=20:y=h-th-20",
+            "-vf", $filter,
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-pix_fmt", "yuv420p",
