@@ -44,79 +44,229 @@ jobs:
       - name: Run tests with recording
         shell: powershell
         run: |
-          $recording = "$env:GITHUB_WORKSPACE\artifacts\test-feed.mkv"
-          $testLabel = "$env:GITHUB_WORKSPACE\artifacts\current-test.txt"
-          $testLog = "$env:GITHUB_WORKSPACE\artifacts\test-output.log"
+          $ErrorActionPreference = "Continue"
+
+          $artifacts = "$env:GITHUB_WORKSPACE\artifacts"
+
+          New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
+
+          $recording = "$artifacts\test-feed.mkv"
+          $testLabel = "$artifacts\current-test.txt"
+          $testLog = "$artifacts\test-output.log"
+          $ffmpegLog = "$artifacts\ffmpeg.log"
+
+          Set-Content $testLabel "Starting tests..."
+          Set-Content $testLog ""
+          Set-Content $ffmpegLog ""
+
+          Write-Host "========================================"
+          Write-Host "Starting QPlayer UI test recording"
+          Write-Host "========================================"
+          Write-Host "Artifacts: $artifacts"
+          Write-Host "Recording: $recording"
+          Write-Host "Test log:  $testLog"
+          Write-Host ""
+
+          #
+          # Start FFmpeg
+          #
+
+          $filter = "drawtext=fontfile='arial.ttf':textfile='current-test.txt':reload=1:fontcolor=white:fontsize=28:box=1:boxcolor=black@0.65:boxborderw=12:x=20:y=h-th-20"
 
           $ffmpeg = New-Object System.Diagnostics.Process
           $ffmpeg.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
 
           $ffmpeg.StartInfo.FileName = "ffmpeg"
-          $ffmpeg.StartInfo.WorkingDirectory = "$env:GITHUB_WORKSPACE\artifacts"
+          $ffmpeg.StartInfo.WorkingDirectory = $artifacts
 
-          $font = "C\:/Windows/Fonts/arial.ttf"
-          
-          $filter = "drawtext=fontfile='$font':textfile='current-test.txt':reload=1:fontcolor=white:fontsize=28:box=1:boxcolor=black@0.65:boxborderw=12:x=20:y=h-th-20"
-          
           $ffmpeg.StartInfo.Arguments = @(
-            "-y",
-            "-f", "gdigrab",
-            "-framerate", "10",
-            "-video_size", "1920x1080",
-            "-i", "desktop",
-            "-vf", $filter,
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-pix_fmt", "yuv420p",
-            $recording
+              "-y",
+              "-f", "gdigrab",
+              "-framerate", "10",
+              "-video_size", "1920x1080",
+              "-i", "desktop",
+              "-vf", $filter,
+              "-c:v", "libx264",
+              "-preset", "ultrafast",
+              "-pix_fmt", "yuv420p",
+              $recording
           ) -join " "
 
           $ffmpeg.StartInfo.UseShellExecute = $false
           $ffmpeg.StartInfo.CreateNoWindow = $true
           $ffmpeg.StartInfo.RedirectStandardInput = $true
+          $ffmpeg.StartInfo.RedirectStandardError = $true
 
-          $ffmpeg.Start()
+          Write-Host "Starting FFmpeg..."
+          $ffmpeg.Start() | Out-Null
 
-          Write-Host "FFmpeg recording started (PID $($ffmpeg.Id))"
-          try {
-            dotnet test Qplayer.Tests/Qplayer.Tests.csproj `
-              --configuration Debug `
-              --no-build `
-              --logger "console;verbosity=normal" 2>&1 |
-              ForEach-Object {
-                $line = $_
+          Write-Host "FFmpeg started with PID $($ffmpeg.Id)"
 
-                # Keep the normal output in the GitHub Actions log
-                Write-Host $line
+          #
+          # Drain FFmpeg stderr in the background.
+          #
+          # This is important: if redirected stderr isn't consumed, FFmpeg
+          # can eventually block when its pipe buffer fills.
+          #
 
-                # TODO: tailor this regex to the test framework's output
-                if ($line -match '\]\s+(.*?)\s+\[STARTED\]') {
-                  Set-Content $testLabel $Matches[1]
-                }
+          $ffmpegErrorTask = $ffmpeg.StandardError.ReadToEndAsync()
 
-                Add-Content $testLog $line
-              }
+          #
+          # Start the tests DIRECTLY.
+          #
+          # Do NOT pipe dotnet test through ForEach-Object.
+          #
 
-            $testExitCode = $LASTEXITCODE
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "Starting dotnet test"
+          Write-Host "========================================"
+          Write-Host ""
+
+          $testProcess = New-Object System.Diagnostics.Process
+          $testProcess.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+
+          $testProcess.StartInfo.FileName = "dotnet"
+          $testProcess.StartInfo.WorkingDirectory = $env:GITHUB_WORKSPACE
+
+          $testProcess.StartInfo.Arguments = @(
+              "test",
+              "Qplayer.Tests/Qplayer.Tests.csproj",
+              "--configuration", "Debug",
+              "--no-build",
+              "--logger", "console;verbosity=normal"
+          ) -join " "
+
+          $testProcess.StartInfo.UseShellExecute = $false
+          $testProcess.StartInfo.CreateNoWindow = $true
+          $testProcess.StartInfo.RedirectStandardOutput = $true
+          $testProcess.StartInfo.RedirectStandardError = $true
+
+          Write-Host "Command:"
+          Write-Host "dotnet $($testProcess.StartInfo.Arguments)"
+          Write-Host ""
+
+          $testProcess.Start() | Out-Null
+
+          Write-Host "dotnet test started with PID $($testProcess.Id)"
+
+          #
+          # Continuously consume stdout/stderr.
+          #
+          # We write everything to the log ourselves, but importantly this
+          # happens AFTER dotnet has started and does not form a PowerShell
+          # pipeline around the test process.
+          #
+
+          $stdoutTask = $testProcess.StandardOutput.ReadToEndAsync()
+          $stderrTask = $testProcess.StandardError.ReadToEndAsync()
+
+          #
+          # Wait for the test process.
+          #
+
+          while (!$testProcess.HasExited) {
+              Write-Host "dotnet test is still running (PID $($testProcess.Id))..."
+              Start-Sleep -Seconds 5
           }
-          finally {
-            Set-Content $testLabel "Tests complete"
 
-            Write-Host "Stopping FFmpeg..."
+          $testExitCode = $testProcess.ExitCode
 
-            if (!$ffmpeg.HasExited) {
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "dotnet test exited"
+          Write-Host "Exit code: $testExitCode"
+          Write-Host "========================================"
+          Write-Host ""
+
+          #
+          # Collect stdout/stderr.
+          #
+
+          $stdout = $stdoutTask.Result
+          $stderr = $stderrTask.Result
+
+          if ($stdout) {
+              Add-Content -Path $testLog -Value $stdout
+          }
+
+          if ($stderr) {
+              Add-Content -Path $testLog -Value $stderr
+          }
+
+          #
+          # Print the test output to the GitHub Actions log.
+          #
+
+          Write-Host "========== TEST OUTPUT =========="
+
+          if ($stdout) {
+              Write-Host $stdout
+          }
+
+          if ($stderr) {
+              Write-Host "========== TEST STDERR =========="
+              Write-Host $stderr
+          }
+
+          Write-Host "========== END TEST OUTPUT =========="
+
+          #
+          # Stop FFmpeg gracefully.
+          #
+
+          Write-Host ""
+          Write-Host "Stopping FFmpeg..."
+
+          Set-Content $testLabel "Tests complete"
+
+          if (!$ffmpeg.HasExited) {
+
+              Write-Host "Sending FFmpeg quit command..."
+
               $ffmpeg.StandardInput.WriteLine("q")
               $ffmpeg.StandardInput.Flush()
 
               if (!$ffmpeg.WaitForExit(15000)) {
-                Write-Warning "FFmpeg did not exit cleanly; terminating it."
-                $ffmpeg.Kill()
-                $ffmpeg.WaitForExit()
-              }
-            }
 
-            Write-Host "FFmpeg exited with code $($ffmpeg.ExitCode)"
+                  Write-Warning "FFmpeg did not exit within 15 seconds."
+
+                  $ffmpeg.Kill()
+                  $ffmpeg.WaitForExit()
+              }
           }
+
+          #
+          # Finish collecting FFmpeg output.
+          #
+
+          $ffmpegError = $ffmpegErrorTask.Result
+
+          if ($ffmpegError) {
+              Set-Content -Path $ffmpegLog -Value $ffmpegError
+          }
+
+          Write-Host "FFmpeg exited with code $($ffmpeg.ExitCode)"
+          Write-Host ""
+
+          #
+          # Basic recording diagnostics
+          #
+
+          if (Test-Path $recording) {
+              $size = (Get-Item $recording).Length
+
+              Write-Host "Recording created:"
+              Write-Host "  $recording"
+              Write-Host "  Size: $size bytes"
+          }
+          else {
+              Write-Warning "Recording was not created!"
+          }
+
+          #
+          # Don't hide the actual test result.
+          #
 
           exit $testExitCode
 
