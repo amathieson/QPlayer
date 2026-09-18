@@ -25,7 +25,7 @@ jobs:
         run: dotnet restore Qplayer.sln
 
       - name: Build
-        run: dotnet build Qplayer.sln --configuration Release --no-restore
+        run: dotnet build Qplayer.sln --configuration Debug --no-restore
 
       - name: Start screen recording
         shell: powershell
@@ -64,7 +64,7 @@ jobs:
           Write-Host "FFmpeg recording started (PID $($process.Id))"
 
       - name: Run tests
-        run: dotnet test Qplayer.Tests/Qplayer.Tests.csproj --configuration Release
+        run: dotnet test Qplayer.Tests/Qplayer.Tests.csproj --configuration Debug --no-build
 
       - name: Stop screen recording
         if: always()
