@@ -71,7 +71,15 @@ jobs:
           # Start FFmpeg
           #
 
-          $filter = "drawtext=fontfile='arial.ttf':textfile='current-test.txt':reload=1:fontcolor=white:fontsize=28:box=1:boxcolor=black@0.65:boxborderw=12:x=20:y=h-th-20"
+          # 1. Force UTF-8 so FFmpeg can actually read the text
+          Set-Content $testLabel "Starting tests..." -Encoding UTF8
+
+          # 2. Escape the Windows paths for FFmpeg's strict filter syntax
+          $escapedFontPath = "C\:/Windows/Fonts/arial.ttf"
+          $escapedTextPath = $testLabel -replace '\\', '/' -replace ':', '\:'
+
+          # 3. Use the absolute paths in the filter
+          $filter = "drawtext=fontfile='$escapedFontPath':textfile='$escapedTextPath':reload=1:fontcolor=white:fontsize=28:box=1:boxcolor=black@0.65:boxborderw=12:x=20:y=h-th-20"
 
           $ffmpeg = New-Object System.Diagnostics.Process
           $ffmpeg.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
@@ -132,17 +140,45 @@ jobs:
               "--diagnostic"         # Forces the runner to log WHY zero tests were discovered
           )
 
+          # 1. Start a background job to tail the log and update the FFmpeg text file
+          $tailJob = Start-Job -ArgumentList $testLog, $testLabel -ScriptBlock {
+              param($logPath, $labelPath)
+    
+              # Wait for the log file to be created by the dotnet process
+              while (!(Test-Path $logPath)) { Start-Sleep -Milliseconds 50 }
+    
+              # Read the log file in real-time
+              Get-Content $logPath -Wait | ForEach-Object {
+        
+                  # Match standard .NET test output (e.g., "Passed Qplayer.Tests.MyTest [15 ms]")
+                  if ($_ -match "(Passed|Failed|Skipped)\s+(.*)") {
+            
+                      # Extract the test name and strip the trailing duration
+                      $testName = $matches[2] -replace "\s*\[.*?\]\s*$", ""
+            
+                      # Force UTF-8 so FFmpeg can read the update
+                      Set-Content $labelPath $testName -Encoding UTF8
+                  }
+                  elseif ($_ -match "Starting test execution") {
+                      Set-Content $labelPath "Executing Tests..." -Encoding UTF8
+                  }
+              }
+          }
+
           Write-Host "========================================"
           Write-Host "Starting tests"
           Write-Host "========================================"
           Write-Host "dotnet $($testArgs -join ' ')"
           Write-Host ""
 
-          # Run without the *> redirection temporarily so the raw error 
-          # isn't swallowed by PowerShell's stream handling
-          & dotnet @testArgs
+          # Run dotnet test normally (piping to the log file the job is reading)
+          & dotnet @testArgs *> $testLog
 
           $testExitCode = $LASTEXITCODE
+
+          # 2. Stop and clean up the background tail job
+          Stop-Job $tailJob | Out-Null
+          Remove-Job $tailJob | Out-Null
 
           Write-Host ""
           Write-Host "========================================"
@@ -162,7 +198,7 @@ jobs:
           #
           # Stop FFmpeg gracefully.
           #
-
+          Set-Content $testLabel "Tests complete" -Encoding UTF8
           Write-Host ""
           Write-Host "Stopping FFmpeg..."
 
