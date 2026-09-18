@@ -122,6 +122,7 @@ jobs:
           $testArgs = @(
               "test",
               "Qplayer.Tests/Qplayer.Tests.csproj",
+              "--no-build",
               "--configuration",
               "Debug",
               "--logger",
