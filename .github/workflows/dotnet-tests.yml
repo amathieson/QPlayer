@@ -71,25 +71,18 @@ jobs:
           # Start FFmpeg
           #
 
-          # 1. Copy the font directly into the artifacts folder
+          # 1. Copy the font directly into the artifacts folder to avoid absolute path colons
           Copy-Item "C:\Windows\Fonts\arial.ttf" -Destination "$artifacts\arial.ttf"
 
-          # 1. Initialize the text file
+          # 2. Write the initial text with UTF8 so FFmpeg can read it
           Set-Content $testLabel "Starting tests..." -Encoding UTF8
 
-          # 2. Use forward slashes for absolute paths (FFmpeg parses these natively on Windows without escaping)
-          $fontPath = "C:/Windows/Fonts/arial.ttf"
-          $textPath = $testLabel -replace '\\', '/'
-
-          # 3. Define the filter
-          $filter = "drawtext=fontfile='$fontPath':textfile='$textPath':reload=1:fontcolor=white:fontsize=48:box=1:boxcolor=red@0.8:boxborderw=12:x=50:y=50"
-
-          # 4. Write the filter to a script file to bypass PowerShell quote mangling entirely
-          $filterScript = "$artifacts\filter.txt"
-          Set-Content $filterScript $filter -Encoding UTF8
+          # 3. Define the filter (ensure there are NO SPACES anywhere in this string)
+          $filter = "drawtext=fontfile='arial.ttf':textfile='current-test.txt':reload=1:fontcolor=white:fontsize=48:box=1:boxcolor=red@0.8:boxborderw=12:x=50:y=50"
 
           $ffmpeg = New-Object System.Diagnostics.Process
           $ffmpeg.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+
           $ffmpeg.StartInfo.FileName = "ffmpeg"
           $ffmpeg.StartInfo.WorkingDirectory = $artifacts
 
@@ -99,7 +92,7 @@ jobs:
               "-framerate", "10",
               "-video_size", "1920x1080",
               "-i", "desktop",
-              "-filter_script:v", "filter.txt", # Reads the filter directly from the file
+              "-vf", $filter,
               "-c:v", "libx264",
               "-preset", "ultrafast",
               "-pix_fmt", "yuv420p",
