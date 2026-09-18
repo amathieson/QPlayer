@@ -54,7 +54,9 @@ jobs:
           $ffmpeg.StartInfo.FileName = "ffmpeg"
           $ffmpeg.StartInfo.WorkingDirectory = "$env:GITHUB_WORKSPACE\artifacts"
 
-          $filter = "drawtext=textfile='current-test.txt':reload=1:fontcolor=white:fontsize=28:box=1:boxcolor=black@0.65:boxborderw=12:x=20:y=h-th-20"
+          $font = "C:/Windows/Fonts/arial.ttf"
+
+          $filter = "drawtext=fontfile='$font':textfile='current-test.txt':reload=1:fontcolor=white:fontsize=28:box=1:boxcolor=black@0.65:boxborderw=12:x=20:y=h-th-20"
 
           $ffmpeg.StartInfo.Arguments = @(
             "-y",
