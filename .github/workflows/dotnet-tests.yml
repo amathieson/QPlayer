@@ -27,29 +27,75 @@ jobs:
       - name: Build
         run: dotnet build Qplayer.sln --configuration Debug --no-restore
 
+      - name: Set display resolution
+        shell: powershell
+        run: |
+          Set-DisplayResolution -Width 1920 -Height 1080 -Force
+
+          Get-CimInstance Win32_VideoController |
+            Select-Object CurrentHorizontalResolution, CurrentVerticalResolution
+
+      - name: Prepare recording
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          Set-Content artifacts/current-test.txt "Starting tests..."
+
       - name: Run tests with recording
         shell: powershell
         run: |
           $recording = "$env:GITHUB_WORKSPACE\artifacts\test-feed.mkv"
-          New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE\artifacts" | Out-Null
+          $testLabel = "$env:GITHUB_WORKSPACE\artifacts\current-test.txt"
+          $testLog = "$env:GITHUB_WORKSPACE\artifacts\test-output.log"
 
           $ffmpeg = New-Object System.Diagnostics.Process
           $ffmpeg.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
           $ffmpeg.StartInfo.FileName = "ffmpeg"
-          $ffmpeg.StartInfo.Arguments = "-y -f gdigrab -framerate 10 -i desktop -c:v libx264 -preset ultrafast -pix_fmt yuv420p `"$recording`""
+          $ffmpeg.StartInfo.Arguments = @(
+            "-y",
+            "-f", "gdigrab",
+            "-framerate", "10",
+            "-video_size", "1920x1080",
+            "-i", "desktop",
+            "-vf", "drawtext=textfile='$testLabel':reload=1:fontcolor=white:fontsize=28:box=1:boxcolor=black@0.65:boxborderw=12:x=20:y=h-th-20",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-pix_fmt", "yuv420p",
+            $recording
+          ) -join " "
+
           $ffmpeg.StartInfo.UseShellExecute = $false
           $ffmpeg.StartInfo.CreateNoWindow = $true
           $ffmpeg.StartInfo.RedirectStandardInput = $true
-          $ffmpeg.StartInfo.RedirectStandardError = $true
 
           $ffmpeg.Start()
+
           Write-Host "FFmpeg recording started (PID $($ffmpeg.Id))"
 
           try {
-            dotnet test Qplayer.Tests/Qplayer.Tests.csproj --configuration Debug --no-build
+            dotnet test Qplayer.Tests/Qplayer.Tests.csproj `
+              --configuration Debug `
+              --no-build `
+              --logger "console;verbosity=normal" 2>&1 |
+              ForEach-Object {
+                $line = $_
+
+                # Keep the normal output in the GitHub Actions log
+                Write-Host $line
+
+                # TODO: tailor this regex to the test framework's output
+                if ($line -match '\]\s+(.*?)\s+\[STARTED\]') {
+                  Set-Content $testLabel $Matches[1]
+                }
+
+                Add-Content $testLog $line
+              }
+
             $testExitCode = $LASTEXITCODE
           }
           finally {
+            Set-Content $testLabel "Tests complete"
+
             Write-Host "Stopping FFmpeg..."
 
             if (!$ffmpeg.HasExited) {
@@ -67,9 +113,6 @@ jobs:
           }
 
           exit $testExitCode
-
-      - name: Run tests
-        run: dotnet test Qplayer.Tests/Qplayer.Tests.csproj --configuration Debug --no-build
 
       - name: Convert recording to MP4
         if: always()
