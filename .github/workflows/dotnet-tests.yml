@@ -79,7 +79,8 @@ jobs:
           $escapedTextPath = $testLabel -replace '\\', '/' -replace ':', '\:'
 
           # 3. Use the absolute paths in the filter
-          $filter = "drawtext=fontfile='$escapedFontPath':textfile='$escapedTextPath':reload=1:fontcolor=white:fontsize=28:box=1:boxcolor=black@0.65:boxborderw=12:x=20:y=h-th-20"
+          # $filter = "drawtext=fontfile='$escapedFontPath':textfile='$escapedTextPath':reload=1:fontcolor=white:fontsize=28:box=1:boxcolor=black@0.65:boxborderw=12:x=20:y=h-th-20"
+          $filter = "drawtext=fontfile='C\:/Windows/Fonts/arial.ttf':text='TESTING VISIBILITY':fontcolor=white:fontsize=48:box=1:boxcolor=red@0.8:boxborderw=12:x=100:y=100"
 
           $ffmpeg = New-Object System.Diagnostics.Process
           $ffmpeg.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
