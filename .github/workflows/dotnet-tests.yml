@@ -117,99 +117,42 @@ jobs:
           # Do NOT pipe dotnet test through ForEach-Object.
           #
 
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "Starting dotnet test"
-          Write-Host "========================================"
-          Write-Host ""
+          $testLog = "$artifacts\test-output.log"
 
-          $testProcess = New-Object System.Diagnostics.Process
-          $testProcess.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
-
-          $testProcess.StartInfo.FileName = "dotnet"
-          $testProcess.StartInfo.WorkingDirectory = $env:GITHUB_WORKSPACE
-
-          $testProcess.StartInfo.Arguments = @(
+          $testArgs = @(
               "test",
               "Qplayer.Tests/Qplayer.Tests.csproj",
-              "--configuration", "Debug",
-              "--logger", "console;verbosity=detailed"
-          ) -join " "
+              "--configuration",
+              "Debug",
+              "--logger",
+              "console;verbosity=normal"
+          )
 
-          $testProcess.StartInfo.UseShellExecute = $false
-          $testProcess.StartInfo.CreateNoWindow = $true
-          $testProcess.StartInfo.RedirectStandardOutput = $true
-          $testProcess.StartInfo.RedirectStandardError = $true
-
-          Write-Host "Command:"
-          Write-Host "dotnet $($testProcess.StartInfo.Arguments)"
+          Write-Host "========================================"
+          Write-Host "Starting tests"
+          Write-Host "========================================"
+          Write-Host "dotnet $($testArgs -join ' ')"
           Write-Host ""
 
-          $testProcess.Start() | Out-Null
+          & dotnet @testArgs *> $testLog
 
-          Write-Host "dotnet test started with PID $($testProcess.Id)"
-
-          #
-          # Continuously consume stdout/stderr.
-          #
-          # We write everything to the log ourselves, but importantly this
-          # happens AFTER dotnet has started and does not form a PowerShell
-          # pipeline around the test process.
-          #
-
-          $stdoutTask = $testProcess.StandardOutput.ReadToEndAsync()
-          $stderrTask = $testProcess.StandardError.ReadToEndAsync()
-
-          #
-          # Wait for the test process.
-          #
-
-          while (!$testProcess.HasExited) {
-              Write-Host "dotnet test is still running (PID $($testProcess.Id))..."
-              Start-Sleep -Seconds 5
-          }
-
-          $testExitCode = $testProcess.ExitCode
+          $testExitCode = $LASTEXITCODE
 
           Write-Host ""
           Write-Host "========================================"
-          Write-Host "dotnet test exited"
-          Write-Host "Exit code: $testExitCode"
+          Write-Host "Test process exited: $testExitCode"
           Write-Host "========================================"
           Write-Host ""
-
-          #
-          # Collect stdout/stderr.
-          #
-
-          $stdout = $stdoutTask.Result
-          $stderr = $stderrTask.Result
-
-          if ($stdout) {
-              Add-Content -Path $testLog -Value $stdout
-          }
-
-          if ($stderr) {
-              Add-Content -Path $testLog -Value $stderr
-          }
-
-          #
-          # Print the test output to the GitHub Actions log.
-          #
 
           Write-Host "========== TEST OUTPUT =========="
 
-          if ($stdout) {
-              Write-Host $stdout
-          }
-
-          if ($stderr) {
-              Write-Host "========== TEST STDERR =========="
-              Write-Host $stderr
+          if (Test-Path $testLog) {
+              Get-Content $testLog | ForEach-Object {
+                  Write-Host $_
+              }
           }
 
           Write-Host "========== END TEST OUTPUT =========="
-
           #
           # Stop FFmpeg gracefully.
           #
