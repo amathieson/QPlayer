@@ -71,22 +71,23 @@ jobs:
           # Start FFmpeg
           #
 
-          # 1. Force UTF-8 so FFmpeg can actually read the text
+          # 1. Copy the font directly into the artifacts folder
+          Copy-Item "C:\Windows\Fonts\arial.ttf" -Destination "$artifacts\arial.ttf"
+
+          # 2. Write the initial text with UTF8
           Set-Content $testLabel "Starting tests..." -Encoding UTF8
 
-          # 2. Escape Windows paths for the filter
-          $escapedFontPath = "C\:/Windows/Fonts/arial.ttf"
-          $escapedTextPath =$testLabel -replace '\\', '/' -replace ':', '\:'
-
-          # 3. Create the filter using the textfile (no spaces to be safe)
-          $filter = "drawtext=fontfile='$escapedFontPath':textfile='$escapedTextPath':reload=1:fontcolor=white:fontsize=28:box=1:boxcolor=black@0.65:boxborderw=12:x=20:y=h-th-20"
+          # 3. Use pure relative paths (since WorkingDirectory is already $artifacts).
+          # 4. Move to x=50, y=50 (Top Left) to avoid any bottom-screen clipping.
+          # 5. Make the box red and large so it is impossible to miss.
+          $filter = "drawtext=fontfile='arial.ttf':textfile='current-test.txt':reload=1:fontcolor=white:fontsize=48:box=1:boxcolor=red@0.8:boxborderw=12:x=50:y=50"
 
           $ffmpeg = New-Object System.Diagnostics.Process
           $ffmpeg.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+
           $ffmpeg.StartInfo.FileName = "ffmpeg"
           $ffmpeg.StartInfo.WorkingDirectory =$artifacts
 
-          # 4. Safely wrap $filter and $recording in double quotes to prevent path/space parsing issues
           $ffmpeg.StartInfo.Arguments = @(
               "-y",
               "-f", "gdigrab",
