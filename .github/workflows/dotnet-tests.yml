@@ -27,79 +27,64 @@ jobs:
       - name: Build
         run: dotnet build Qplayer.sln --configuration Debug --no-restore
 
-      - name: Start screen recording
+      - name: Run tests with recording
         shell: powershell
         run: |
+          $recording = "$env:GITHUB_WORKSPACE\artifacts\test-feed.mkv"
           New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE\artifacts" | Out-Null
 
-          $ffmpegLog = "$env:GITHUB_WORKSPACE\artifacts\ffmpeg.log"
-          $ffmpegOutput = "$env:GITHUB_WORKSPACE\artifacts\test-feed.mp4"
+          $ffmpeg = New-Object System.Diagnostics.Process
+          $ffmpeg.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+          $ffmpeg.StartInfo.FileName = "ffmpeg"
+          $ffmpeg.StartInfo.Arguments = "-y -f gdigrab -framerate 10 -i desktop -c:v libx264 -preset ultrafast -pix_fmt yuv420p `"$recording`""
+          $ffmpeg.StartInfo.UseShellExecute = $false
+          $ffmpeg.StartInfo.CreateNoWindow = $true
+          $ffmpeg.StartInfo.RedirectStandardInput = $true
+          $ffmpeg.StartInfo.RedirectStandardError = $true
 
-          $process = Start-Process ffmpeg `
-            -ArgumentList @(
-              "-y",
-              "-f", "gdigrab",
-              "-framerate", "10",
-              "-draw_mouse", "1",
-              "-i", "desktop",
-              "-c:v", "libx264",
-              "-preset", "ultrafast",
-              "-pix_fmt", "yuv420p",
-              $ffmpegOutput
-            ) `
-            -RedirectStandardError $ffmpegLog `
-            -PassThru `
-            -WindowStyle Hidden
+          $ffmpeg.Start()
+          Write-Host "FFmpeg recording started (PID $($ffmpeg.Id))"
 
-          $process.Id | Set-Content "$env:GITHUB_WORKSPACE\ffmpeg.pid"
+          try {
+            dotnet test Qplayer.Tests/Qplayer.Tests.csproj --configuration Debug --no-build
+            $testExitCode = $LASTEXITCODE
+          }
+          finally {
+            Write-Host "Stopping FFmpeg..."
 
-          Start-Sleep -Seconds 3
+            if (!$ffmpeg.HasExited) {
+              $ffmpeg.StandardInput.WriteLine("q")
+              $ffmpeg.StandardInput.Flush()
 
-          if ($process.HasExited) {
-            Write-Host "FFmpeg exited early with code $($process.ExitCode)"
-            Get-Content $ffmpegLog
-            exit 1
+              if (!$ffmpeg.WaitForExit(15000)) {
+                Write-Warning "FFmpeg did not exit cleanly; terminating it."
+                $ffmpeg.Kill()
+                $ffmpeg.WaitForExit()
+              }
+            }
+
+            Write-Host "FFmpeg exited with code $($ffmpeg.ExitCode)"
           }
 
-          Write-Host "FFmpeg recording started (PID $($process.Id))"
+          exit $testExitCode
 
       - name: Run tests
         run: dotnet test Qplayer.Tests/Qplayer.Tests.csproj --configuration Debug --no-build
 
-      - name: Stop screen recording
+      - name: Convert recording to MP4
         if: always()
         shell: powershell
         run: |
-          if (Test-Path "$env:GITHUB_WORKSPACE\ffmpeg.pid") {
-            $ffmpegPid = Get-Content "$env:GITHUB_WORKSPACE\ffmpeg.pid"
+          $input = "$env:GITHUB_WORKSPACE\artifacts\test-feed.mkv"
+          $output = "$env:GITHUB_WORKSPACE\artifacts\test-feed.mp4"
 
-            $process = Get-Process -Id $ffmpegPid -ErrorAction SilentlyContinue
-
-            if ($process) {
-              Write-Host "Stopping FFmpeg..."
-
-              # Ask FFmpeg to terminate gracefully.
-              $process.CloseMainWindow()
-              $process.WaitForExit(10000)
-            }
-
-            if (Get-Process -Id $ffmpegPid -ErrorAction SilentlyContinue) {
-              Write-Host "FFmpeg did not exit gracefully, killing it."
-              Stop-Process -Id $ffmpegPid -Force
-            }
-          }
-
-          if (Test-Path "$env:GITHUB_WORKSPACE\artifacts\ffmpeg.log") {
-            Write-Host "===== FFmpeg log ====="
-            Get-Content "$env:GITHUB_WORKSPACE\artifacts\ffmpeg.log"
+          if (Test-Path $input) {
+            ffmpeg -y -i "$input" -c copy "$output"
           }
 
       - name: Upload test recording
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qplayer-test-feed
-          path: | 
-            artifacts/test-feed.mp4
-            artifacts/ffmpeg.log
-          if-no-files-found: warn
+          name: test-recording
+          path: artifacts/test-feed.mp4
