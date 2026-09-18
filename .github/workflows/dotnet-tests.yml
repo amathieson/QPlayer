@@ -133,8 +133,7 @@ jobs:
               "test",
               "Qplayer.Tests/Qplayer.Tests.csproj",
               "--configuration", "Debug",
-              "--no-build",
-              "--logger", "console;verbosity=normal"
+              "--logger", "console;verbosity=detailed"
           ) -join " "
 
           $testProcess.StartInfo.UseShellExecute = $false
