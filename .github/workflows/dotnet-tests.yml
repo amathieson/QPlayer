@@ -86,7 +86,8 @@ jobs:
           $ffmpeg.StartInfo.FileName = "ffmpeg"
           $ffmpeg.StartInfo.WorkingDirectory =$artifacts
 
-          # 4. Safely wrap $filter and $recording in double quotes to prevent path/space parsing issues$ffmpeg.StartInfo.Arguments = @(
+          # 4. Safely wrap $filter and $recording in double quotes to prevent path/space parsing issues
+          $ffmpeg.StartInfo.Arguments = @(
               "-y",
               "-f", "gdigrab",
               "-framerate", "10",
